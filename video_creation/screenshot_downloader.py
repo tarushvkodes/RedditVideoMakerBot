@@ -85,7 +85,7 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
             color_scheme="dark",
             viewport=ViewportSize(width=W, height=H),
             device_scale_factor=dsf,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            user_agent=f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{browser.version}.0.0.0 Safari/537.36",
             extra_http_headers={
                 "Dnt": "1",
                 "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"',
@@ -110,17 +110,12 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
 
         login_error_div = page.locator(".AnimatedForm__errorMessage").first
         if login_error_div.is_visible():
-            login_error_message = login_error_div.inner_text()
-            if login_error_message.strip() == "":
-                # The div element is empty, no error
-                pass
-            else:
-                # The div contains an error message
-                print_substep(
-                    "Your reddit credentials are incorrect! Please modify them accordingly in the config.toml file.",
-                    style="red",
-                )
-                exit()
+
+            print_substep(
+                "Your reddit credentials are incorrect! Please modify them accordingly in the config.toml file.",
+                style="red",
+            )
+            exit()
         else:
             pass
 
