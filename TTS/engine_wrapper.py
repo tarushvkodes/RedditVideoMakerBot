@@ -5,14 +5,15 @@ from typing import Tuple
 
 import numpy as np
 import translators
-from moviepy.audio.AudioClip import AudioClip
 from moviepy import AudioFileClip
+from moviepy.audio.AudioClip import AudioClip
+from moviepy.audio.fx import MultiplyVolume
 from rich.progress import track
 
 from utils import settings
 from utils.console import print_step, print_substep
 from utils.voice import sanitize_text
-from moviepy.audio.fx import MultiplyVolume
+
 DEFAULT_MAX_LENGTH: int = (
     50  # Video length variable, edit this on your own risk. It should work, but it's not supported
 )
