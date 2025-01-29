@@ -81,11 +81,12 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
         dsf = (W // 600) + 1
 
         context = browser.new_context(
-            locale=lang or "en-us",
+            locale=lang or "en-CA,en;q=0.9",
             color_scheme="dark",
             viewport=ViewportSize(width=W, height=H),
             device_scale_factor=dsf,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+            extra_http_headers={"Dnt": "1", "Sec-Ch-Ua": '"Not A(Brand";v="8", "Chromium";v="132", "Google Chrome";v="132"' },
         )
         cookies = json.load(cookie_file)
         cookie_file.close()
