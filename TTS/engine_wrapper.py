@@ -5,14 +5,14 @@ from typing import Tuple
 
 import numpy as np
 import translators
-from moviepy.audio.AudioClip import AudioClip
 from moviepy import AudioFileClip
+from moviepy.audio.AudioClip import AudioClip
+from moviepy.audio.fx import MultiplyVolume
 from rich.progress import track
 
 from utils import settings
 from utils.console import print_step, print_substep
 from utils.voice import sanitize_text
-from moviepy.audio.fx import MultiplyVolume
 
 DEFAULT_MAX_LENGTH: int = (
     50  # Video length variable, edit this on your own risk. It should work, but it's not supported
@@ -58,9 +58,7 @@ class TTSEngine:
             comment["comment_body"] = re.sub(regex_urls, " ", comment["comment_body"])
             comment["comment_body"] = comment["comment_body"].replace("\n", ". ")
             comment["comment_body"] = re.sub(r"\bAI\b", "A.I", comment["comment_body"])
-            comment["comment_body"] = re.sub(
-                r"\bAGI\b", "A.G.I", comment["comment_body"]
-            )
+            comment["comment_body"] = re.sub(r"\bAGI\b", "A.G.I", comment["comment_body"])
             if comment["comment_body"][-1] != ".":
                 comment["comment_body"] += "."
             comment["comment_body"] = comment["comment_body"].replace(". . .", ".")
@@ -82,17 +80,13 @@ class TTSEngine:
                 if len(self.reddit_object["thread_post"]) > self.tts_module.max_chars:
                     self.split_post(self.reddit_object["thread_post"], "postaudio")
                 else:
-                    self.call_tts(
-                        "postaudio", process_text(self.reddit_object["thread_post"])
-                    )
+                    self.call_tts("postaudio", process_text(self.reddit_object["thread_post"]))
             elif settings.config["settings"]["storymodemethod"] == 1:
                 for idx, text in track(enumerate(self.reddit_object["thread_post"])):
                     self.call_tts(f"postaudio-{idx}", process_text(text))
 
         else:
-            for idx, comment in track(
-                enumerate(self.reddit_object["comments"]), "Saving..."
-            ):
+            for idx, comment in track(enumerate(self.reddit_object["comments"]), "Saving..."):
                 # ! Stop creating mp3 files if the length is greater than max length.
                 if self.length > self.max_length and idx > 1:
                     self.length -= self.last_clip_length
@@ -189,8 +183,6 @@ def process_text(text: str, clean: bool = True):
     new_text = sanitize_text(text) if clean else text
     if lang:
         print_substep("Translating Text...")
-        translated_text = translators.translate_text(
-            text, translator="google", to_language=lang
-        )
+        translated_text = translators.translate_text(text, translator="google", to_language=lang)
         new_text = sanitize_text(translated_text)
     return new_text
