@@ -64,15 +64,12 @@ class OpenAITTS:
         # Select the model from configuration; default to 'tts-1'
         model = settings.config["settings"]["tts"].get("openai_model", "tts-1")
 
-        # Debug output: print which voice and model will be used
-        print(f"Using OpenAI TTS model: {model} with voice: {voice}")
-
-        # Erstelle das Payload für den API-Request
+        # Create Payload for API-request
         payload = {
             "model": model,
             "voice": voice,
             "input": text,
-            "response_format": "mp3"  # erlaubte Formate: "mp3", "aac", "opus", "flac", "pcm" oder "wav"
+            "response_format": "mp3"  # allowed formats: "mp3", "aac", "opus", "flac", "pcm" or "wav"
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -82,7 +79,7 @@ class OpenAITTS:
             response = requests.post(self.api_url, headers=headers, json=payload)
             if response.status_code != 200:
                 raise RuntimeError(f"Error from TTS API: {response.status_code} {response.text}")
-            # Schreibe die Binärdaten (mp3) direkt in die Datei.
+            # Write response as binary into file.
             with open(filepath, "wb") as f:
                 f.write(response.content)
         except Exception as e:
