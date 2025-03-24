@@ -6,10 +6,10 @@ from TTS.aws_polly import AWSPolly
 from TTS.elevenlabs import elevenlabs
 from TTS.engine_wrapper import TTSEngine
 from TTS.GTTS import GTTS
+from TTS.openai_tts import OpenAITTS
 from TTS.pyttsx import pyttsx
 from TTS.streamlabs_polly import StreamlabsPolly
 from TTS.TikTok import TikTok
-from TTS.openai_tts import OpenAITTS
 from utils import settings
 from utils.console import print_step, print_table
 
