@@ -24,6 +24,9 @@ from utils.videos import save_data
 
 console = Console()
 
+def sanitize_filename(title):
+    # Remove invalid Windows filename characters and trailing whitespace
+    return re.sub(r'[\\/:*?"<>|]', '', title).strip()
 
 class ProgressFfmpeg(threading.Thread):
     def __init__(self, vid_duration_seconds, progress_update_callback):
@@ -65,7 +68,6 @@ class ProgressFfmpeg(threading.Thread):
     def __exit__(self, *args, **kwargs):
         self.stop()
 
-
 def name_normalize(name: str) -> str:
     name = re.sub(r'[?\\"%*:|<>]', "", name)
     name = re.sub(r"( [w,W]\s?\/\s?[o,O,0])", r" without", name)
@@ -81,7 +83,6 @@ def name_normalize(name: str) -> str:
         return translated_name
     else:
         return name
-
 
 def prepare_background(reddit_id: str, W: int, H: int) -> str:
     output_path = f"assets/temp/{reddit_id}/background_noaudio.mp4"
@@ -106,7 +107,6 @@ def prepare_background(reddit_id: str, W: int, H: int) -> str:
         print(e.stderr.decode("utf8"))
         exit(1)
     return output_path
-
 
 def create_fancy_thumbnail(image, text, text_color, padding, wrap=35):
     print_step(f"Creating fancy thumbnail for: {text}")
@@ -164,7 +164,6 @@ def create_fancy_thumbnail(image, text, text_color, padding, wrap=35):
 
     return image
 
-
 def merge_background_audio(audio: ffmpeg, reddit_id: str):
     """Gather an audio and merge with assets/backgrounds/background.mp3
     Args:
@@ -183,7 +182,6 @@ def merge_background_audio(audio: ffmpeg, reddit_id: str):
         # Merges audio and background_audio
         merged_audio = ffmpeg.filter([audio, bg_audio], "amix", duration="longest")
         return merged_audio  # Return merged audio
-
 
 def make_final_video(
     number_of_clips: int,
@@ -347,7 +345,7 @@ def make_final_video(
     idx = re.sub(r"[^\w\s-]", "", reddit_obj["thread_id"])
     title_thumb = reddit_obj["thread_title"]
 
-    filename = f"{name_normalize(title)[:251]}"
+    filename = sanitize_filename(name_normalize(title)[:251])
     subreddit = settings.config["reddit"]["thread"]["subreddit"]
 
     if not exists(f"./results/{subreddit}"):
