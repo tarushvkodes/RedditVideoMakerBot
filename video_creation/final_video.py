@@ -24,6 +24,9 @@ from utils.videos import save_data
 
 console = Console()
 
+def sanitize_filename(title):
+    # Remove invalid Windows filename characters and trailing whitespace
+    return re.sub(r'[\\/:*?"<>|]', '', title).strip()
 
 class ProgressFfmpeg(threading.Thread):
     def __init__(self, vid_duration_seconds, progress_update_callback):
@@ -65,7 +68,6 @@ class ProgressFfmpeg(threading.Thread):
     def __exit__(self, *args, **kwargs):
         self.stop()
 
-
 def name_normalize(name: str) -> str:
     name = re.sub(r'[?\\"%*:|<>]', "", name)
     name = re.sub(r"( [w,W]\s?\/\s?[o,O,0])", r" without", name)
@@ -81,7 +83,6 @@ def name_normalize(name: str) -> str:
         return translated_name
     else:
         return name
-
 
 def prepare_background(reddit_id: str, W: int, H: int) -> str:
     output_path = f"assets/temp/{reddit_id}/background_noaudio.mp4"
@@ -106,7 +107,6 @@ def prepare_background(reddit_id: str, W: int, H: int) -> str:
         print(e.stderr.decode("utf8"))
         exit(1)
     return output_path
-
 
 def create_fancy_thumbnail(image, text, text_color, padding, wrap=35):
     print_step(f"Creating fancy thumbnail for: {text}")
@@ -164,7 +164,6 @@ def create_fancy_thumbnail(image, text, text_color, padding, wrap=35):
 
     return image
 
-
 def merge_background_audio(audio: ffmpeg, reddit_id: str):
     """Gather an audio and merge with assets/backgrounds/background.mp3
     Args:
@@ -183,7 +182,6 @@ def merge_background_audio(audio: ffmpeg, reddit_id: str):
         # Merges audio and background_audio
         merged_audio = ffmpeg.filter([audio, bg_audio], "amix", duration="longest")
         return merged_audio  # Return merged audio
-
 
 def make_final_video(
     number_of_clips: int,
@@ -217,12 +215,31 @@ def make_final_video(
 
     # Gather all audio clips
     audio_clips = list()
-    if number_of_clips == 0 and settings.config["settings"]["storymode"] == "false":
+    if number_of_clips == 0 and settings.config["settings"]["storymode"] == "false" and not settings.config["settings"].get("hybrid_mode", False):
         print(
             "No audio clips to gather. Please use a different TTS or post."
         )  # This is to fix the TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'
         exit()
-    if settings.config["settings"]["storymode"]:
+        
+    # Handle hybrid mode - includes both post audio and comment audio
+    if settings.config["settings"].get("hybrid_mode", False):
+        audio_clips = [ffmpeg.input(f"assets/temp/{reddit_id}/mp3/title.mp3")]
+        
+        # Add post audio clips
+        if settings.config["settings"]["storymodemethod"] == 0:
+            audio_clips.append(ffmpeg.input(f"assets/temp/{reddit_id}/mp3/postaudio.mp3"))
+        elif settings.config["settings"]["storymodemethod"] == 1:
+            post_audio_count = len([f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("postaudio-")])
+            for i in range(post_audio_count):
+                audio_clips.append(ffmpeg.input(f"assets/temp/{reddit_id}/mp3/postaudio-{i}.mp3"))
+        
+        # Add comment audio clips
+        comment_audio_files = [f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("comment-")]
+        comment_audio_files.sort(key=lambda x: int(x.split('-')[1].split('.')[0]))  # Sort by comment number
+        for comment_file in comment_audio_files:
+            audio_clips.append(ffmpeg.input(f"assets/temp/{reddit_id}/mp3/{comment_file}"))
+            
+    elif settings.config["settings"]["storymode"]:
         if settings.config["settings"]["storymodemethod"] == 0:
             audio_clips = [ffmpeg.input(f"assets/temp/{reddit_id}/mp3/title.mp3")]
             audio_clips.insert(1, ffmpeg.input(f"assets/temp/{reddit_id}/mp3/postaudio.mp3"))
@@ -285,7 +302,111 @@ def make_final_video(
     )
 
     current_time = 0
-    if settings.config["settings"]["storymode"]:
+    
+    # Handle hybrid mode - combines story mode and comment mode visuals
+    if settings.config["settings"].get("hybrid_mode", False):
+        # Calculate durations for all audio clips (title + post + comments)
+        audio_clips_durations = []
+        
+        # Title duration
+        audio_clips_durations.append(
+            float(ffmpeg.probe(f"assets/temp/{reddit_id}/mp3/title.mp3")["format"]["duration"])
+        )
+        
+        # Post audio durations
+        if settings.config["settings"]["storymodemethod"] == 0:
+            audio_clips_durations.append(
+                float(ffmpeg.probe(f"assets/temp/{reddit_id}/mp3/postaudio.mp3")["format"]["duration"])
+            )
+        elif settings.config["settings"]["storymodemethod"] == 1:
+            post_audio_count = len([f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("postaudio-")])
+            for i in range(post_audio_count):
+                audio_clips_durations.append(
+                    float(ffmpeg.probe(f"assets/temp/{reddit_id}/mp3/postaudio-{i}.mp3")["format"]["duration"])
+                )
+        
+        # Comment audio durations
+        comment_audio_files = [f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("comment-")]
+        comment_audio_files.sort(key=lambda x: int(x.split('-')[1].split('.')[0]))
+        for comment_file in comment_audio_files:
+            audio_clips_durations.append(
+                float(ffmpeg.probe(f"assets/temp/{reddit_id}/mp3/{comment_file}")["format"]["duration"])
+            )
+        
+        # Handle visuals for hybrid mode
+        if settings.config["settings"]["storymodemethod"] == 0:
+            # Overlay title first (during title audio)
+            background_clip = background_clip.overlay(
+                image_clips[0],
+                enable=f"between(t,{current_time},{current_time + audio_clips_durations[0]})",
+                x="(main_w-overlay_w)/2",
+                y="(main_h-overlay_h)/2",
+            )
+            current_time += audio_clips_durations[0]
+            
+            # Single image for post content
+            image_clips.append(
+                ffmpeg.input(f"assets/temp/{reddit_id}/png/story_content.png").filter(
+                    "scale", screenshot_width, -1
+                )
+            )
+            # Overlay post content (after title finishes)
+            background_clip = background_clip.overlay(
+                image_clips[1],
+                enable=f"between(t,{current_time},{current_time + audio_clips_durations[1]})",
+                x="(main_w-overlay_w)/2",
+                y="(main_h-overlay_h)/2",
+            )
+            current_time += audio_clips_durations[1]
+            
+        elif settings.config["settings"]["storymodemethod"] == 1:
+            # Overlay title first (during title audio)
+            background_clip = background_clip.overlay(
+                image_clips[0],
+                enable=f"between(t,{current_time},{current_time + audio_clips_durations[0]})",
+                x="(main_w-overlay_w)/2",
+                y="(main_h-overlay_h)/2",
+            )
+            current_time += audio_clips_durations[0]
+            
+            # Multiple images for post content
+            clip_index = 1  # Start after title
+            post_audio_count = len([f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("postaudio-")])
+            
+            for i in range(post_audio_count):
+                image_clips.append(
+                    ffmpeg.input(f"assets/temp/{reddit_id}/png/img{i}.png")["v"].filter(
+                        "scale", screenshot_width, -1
+                    )
+                )
+                background_clip = background_clip.overlay(
+                    image_clips[clip_index],
+                    enable=f"between(t,{current_time},{current_time + audio_clips_durations[clip_index]})",
+                    x="(main_w-overlay_w)/2",
+                    y="(main_h-overlay_h)/2",
+                )
+                current_time += audio_clips_durations[clip_index]
+                clip_index += 1
+        
+        # Add comment images
+        comment_count = len([f for f in os.listdir(f"assets/temp/{reddit_id}/mp3") if f.startswith("comment-")])
+        for i in range(comment_count):
+            comment_img_path = f"assets/temp/{reddit_id}/png/comment_{i + 1}.png"
+            if exists(comment_img_path):
+                image_clips.append(
+                    ffmpeg.input(comment_img_path)["v"].filter(
+                        "scale", screenshot_width, -1
+                    )
+                )
+                background_clip = background_clip.overlay(
+                    image_clips[-1],
+                    enable=f"between(t,{current_time},{current_time + audio_clips_durations[len(audio_clips_durations) - comment_count + i]})",
+                    x="(main_w-overlay_w)/2",
+                    y="(main_h-overlay_h)/2",
+                )
+                current_time += audio_clips_durations[len(audio_clips_durations) - comment_count + i]
+                
+    elif settings.config["settings"]["storymode"]:
         audio_clips_durations = [
             float(
                 ffmpeg.probe(f"assets/temp/{reddit_id}/mp3/postaudio-{i}.mp3")["format"]["duration"]
@@ -303,6 +424,7 @@ def make_final_video(
                     "scale", screenshot_width, -1
                 ),
             )
+            # Overlay title first
             background_clip = background_clip.overlay(
                 image_clips[0],
                 enable=f"between(t,{current_time},{current_time + audio_clips_durations[0]})",
@@ -310,6 +432,14 @@ def make_final_video(
                 y="(main_h-overlay_h)/2",
             )
             current_time += audio_clips_durations[0]
+            # Then overlay story content
+            background_clip = background_clip.overlay(
+                image_clips[1],
+                enable=f"between(t,{current_time},{current_time + audio_clips_durations[1]})",
+                x="(main_w-overlay_w)/2",
+                y="(main_h-overlay_h)/2",
+            )
+            current_time += audio_clips_durations[1]
         elif settings.config["settings"]["storymodemethod"] == 1:
             for i in track(range(0, number_of_clips + 1), "Collecting the image files..."):
                 image_clips.append(
@@ -347,7 +477,7 @@ def make_final_video(
     idx = re.sub(r"[^\w\s-]", "", reddit_obj["thread_id"])
     title_thumb = reddit_obj["thread_title"]
 
-    filename = f"{name_normalize(title)[:251]}"
+    filename = sanitize_filename(name_normalize(title)[:251])
     subreddit = settings.config["reddit"]["thread"]["subreddit"]
 
     if not exists(f"./results/{subreddit}"):

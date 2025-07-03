@@ -75,7 +75,36 @@ class TTSEngine:
         # processed_text = ##self.reddit_object["thread_post"] != ""
         idx = 0
 
-        if settings.config["settings"]["storymode"]:
+        # Handle hybrid mode - process both post content and comments
+        if settings.config["settings"].get("hybrid_mode", False):
+            # First process the post content
+            if settings.config["settings"]["storymodemethod"] == 0:
+                if len(self.reddit_object["thread_post"]) > self.tts_module.max_chars:
+                    self.split_post(self.reddit_object["thread_post"], "postaudio")
+                else:
+                    self.call_tts("postaudio", process_text(self.reddit_object["thread_post"]))
+            elif settings.config["settings"]["storymodemethod"] == 1:
+                for idx, text in track(enumerate(self.reddit_object["thread_post"])):
+                    self.call_tts(f"postaudio-{idx}", process_text(text))
+            
+            # Then process the comments
+            comment_start_idx = idx + 1 if settings.config["settings"]["storymodemethod"] == 1 else 1
+            for comment_idx, comment in track(enumerate(self.reddit_object["comments"], start=comment_start_idx), "Processing comments..."):
+                # Stop creating mp3 files if the length is greater than max length
+                if self.length > self.max_length and comment_idx > comment_start_idx:
+                    self.length -= self.last_clip_length
+                    comment_idx -= 1
+                    break
+                if (
+                    len(comment["comment_body"]) > self.tts_module.max_chars
+                ):  # Split the comment if it is too long
+                    self.split_post(comment["comment_body"], f"comment-{comment_idx}")
+                else:  # If the comment is not too long, just call the tts engine
+                    self.call_tts(f"comment-{comment_idx}", process_text(comment["comment_body"]))
+            
+            idx = comment_start_idx + len(self.reddit_object["comments"]) - 1
+            
+        elif settings.config["settings"]["storymode"]:
             if settings.config["settings"]["storymodemethod"] == 0:
                 if len(self.reddit_object["thread_post"]) > self.tts_module.max_chars:
                     self.split_post(self.reddit_object["thread_post"], "postaudio")

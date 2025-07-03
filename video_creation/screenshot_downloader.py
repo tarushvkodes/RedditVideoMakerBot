@@ -28,6 +28,7 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
     H: Final[int] = int(settings.config["settings"]["resolution_h"])
     lang: Final[str] = settings.config["reddit"]["thread"]["post_lang"]
     storymode: Final[bool] = settings.config["settings"]["storymode"]
+    hybrid_mode: Final[bool] = settings.config["settings"].get("hybrid_mode", False)
 
     print_step("Downloading screenshots of reddit posts...")
     reddit_id = re.sub(r"[^\w\s-]", "", reddit_object["thread_id"])
@@ -41,7 +42,7 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
         txtcolor = (240, 240, 240)
         transparent = False
     elif settings.config["settings"]["theme"] == "transparent":
-        if storymode:
+        if storymode or hybrid_mode:
             # Transparent theme
             bgcolor = (0, 0, 0, 0)
             txtcolor = (255, 255, 255)
@@ -59,7 +60,17 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
         txtcolor = (0, 0, 0)
         transparent = False
 
-    if storymode and settings.config["settings"]["storymodemethod"] == 1:
+    # Handle hybrid mode - generate images for post content and then take screenshots for comments
+    if hybrid_mode and settings.config["settings"]["storymodemethod"] == 1:
+        print_substep("Generating images for post content...")
+        imagemaker(
+            theme=bgcolor,
+            reddit_obj=reddit_object,
+            txtclr=txtcolor,
+            transparent=transparent,
+        )
+        # Continue to take screenshots for comments below
+    elif storymode and settings.config["settings"]["storymodemethod"] == 1:
         # for idx,item in enumerate(reddit_object["thread_post"]):
         print_substep("Generating images...")
         return imagemaker(
@@ -96,6 +107,7 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
         # Login to Reddit
         print_substep("Logging in to Reddit...")
         page = context.new_page()
+        page.set_default_timeout(60000)  # Set default timeout globally to 60 seconds
         page.goto("https://www.reddit.com/login", timeout=0)
         page.set_viewport_size(ViewportSize(width=1920, height=1080))
         page.wait_for_load_state()
@@ -177,12 +189,12 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
                 # zoom the body of the page
                 page.evaluate("document.body.style.zoom=" + str(zoom))
                 # as zooming the body doesn't change the properties of the divs, we need to adjust for the zoom
-                location = page.locator('[data-test-id="post-content"]').bounding_box()
+                location = page.locator('shreddit-post').bounding_box()
                 for i in location:
                     location[i] = float("{:.2f}".format(location[i] * zoom))
                 page.screenshot(clip=location, path=postcontentpath)
             else:
-                page.locator('[data-test-id="post-content"]').screenshot(path=postcontentpath)
+                page.locator('shreddit-post').screenshot(path=postcontentpath)
         except Exception as e:
             print_substep("Something went wrong!", style="red")
             resp = input(
@@ -202,15 +214,22 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
 
             raise e
 
-        if storymode:
+        if storymode and not hybrid_mode:
             page.locator('[data-click-id="text"]').first.screenshot(
                 path=f"assets/temp/{reddit_id}/png/story_content.png"
             )
-        else:
+        elif hybrid_mode and settings.config["settings"]["storymodemethod"] == 0:
+            # For hybrid mode with single image, take screenshot of story content
+            page.locator('[data-click-id="text"]').first.screenshot(
+                path=f"assets/temp/{reddit_id}/png/story_content.png"
+            )
+        
+        # For hybrid mode or regular comment mode, take screenshots of comments
+        if not storymode or hybrid_mode:
             for idx, comment in enumerate(
                 track(
                     reddit_object["comments"][:screenshot_num],
-                    "Downloading screenshots...",
+                    "Downloading comment screenshots...",
                 )
             ):
                 # Stop if we have reached the screenshot_num
@@ -222,8 +241,6 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
 
                 page.goto(f"https://new.reddit.com/{comment['comment_url']}")
 
-                # translate code
-
                 if settings.config["reddit"]["thread"]["post_lang"]:
                     comment_tl = translators.translate_text(
                         comment["comment_body"],
@@ -231,28 +248,73 @@ def get_screenshots_of_reddit_posts(reddit_object: dict, screenshot_num: int):
                         to_language=settings.config["reddit"]["thread"]["post_lang"],
                     )
                     page.evaluate(
-                        '([tl_content, tl_id]) => document.querySelector(`#t1_${tl_id} > div:nth-child(2) > div > div[data-testid="comment"] > div`).textContent = tl_content',
+                        '([tl_content, tl_id]) => document.querySelector(`shreddit-comment[thingid="t1_${tl_id}"] > div:nth-child(2) > div > div[data-testid="comment"] > div`).textContent = tl_content',
                         [comment_tl, comment["comment_id"]],
                     )
                 try:
+                    target = f'shreddit-comment[thingid="t1_{comment["comment_id"]}"] div#t1_{comment["comment_id"]}-comment-rtjson-content'
+                    visible = page.locator(target).is_visible()
+                    
+                    if not visible:
+                        class ElementVisible(Exception):pass
+                        try:
+                            for _ in range(30):
+                                page.evaluate("""
+                                    (target) => {
+                                        const element = document.querySelector(target);
+                                        if (element) {
+                                            element.style.display = 'block'; // 或 'inline'
+                                            element.style.visibility = 'visible';
+                                        }
+                                    }
+                                """, target)
+                                page.wait_for_timeout(1000)
+                                visible = page.locator(target).is_visible()
+                                if visible:
+                                    raise ElementVisible
+                            target = f'shreddit-comment[thingid="t1_{comment["comment_id"]}"] div#t1_{comment["comment_id"]}-comment-rtjson-content div#-post-rtjson-content'
+                            visible = page.locator(target).is_visible()
+                            if not visible:
+                                for _ in range(30):
+                                    page.evaluate("""
+                                        (target) => {
+                                            const element = document.querySelector(target);
+                                            if (element) {
+                                                element.style.display = 'block'; // 或 'inline'
+                                                element.style.visibility = 'visible';
+                                            }
+                                        }
+                                    """, target)
+                                    page.wait_for_timeout(1000)
+                                    visible = page.locator(target).is_visible()
+                                    if visible:
+                                        raise ElementVisible
+                                target = f'shreddit-comment[thingid="t1_{comment["comment_id"]}"]'
+                        except ElementVisible:
+                            pass
+
                     if settings.config["settings"]["zoom"] != 1:
                         # store zoom settings
                         zoom = settings.config["settings"]["zoom"]
                         # zoom the body of the page
                         page.evaluate("document.body.style.zoom=" + str(zoom))
                         # scroll comment into view
-                        page.locator(f"#t1_{comment['comment_id']}").scroll_into_view_if_needed()
-                        # as zooming the body doesn't change the properties of the divs, we need to adjust for the zoom
-                        location = page.locator(f"#t1_{comment['comment_id']}").bounding_box()
+                        page.locator(target).scroll_into_view_if_needed()
+                        
+                        # Adjust for the zoom and get bounding box of the target element
+                        location = page.locator(target).bounding_box()
                         for i in location:
                             location[i] = float("{:.2f}".format(location[i] * zoom))
+
                         page.screenshot(
                             clip=location,
-                            path=f"assets/temp/{reddit_id}/png/comment_{idx}.png",
+                            path=f"assets/temp/{reddit_id}/png/comment_{idx + 1}.png",
+                            timeout=60000  # Increased timeout to 60 seconds
                         )
                     else:
-                        page.locator(f"#t1_{comment['comment_id']}").screenshot(
-                            path=f"assets/temp/{reddit_id}/png/comment_{idx}.png"
+                        page.locator(target).screenshot(
+                            path=f"assets/temp/{reddit_id}/png/comment_{idx + 1}.png",
+                            timeout=60000  # Increased timeout to 60 seconds
                         )
                 except TimeoutError:
                     del reddit_object["comments"]
